@@ -1,0 +1,1657 @@
+// ... (código HTML omitido para concisão, apenas o bloco <script> é exibido)
+
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    <script>
+        const CARD_CONTAINER = document.getElementById('card-container');
+        const RANKING_CONTAINER = document.getElementById('ranking-content');
+        const HIGHLIGHT_CONTAINER = document.getElementById('highlight-content');
+        const TOKEN_SEARCH_INPUT = document.getElementById('token-search-input');
+        const TOKEN_SEARCH_RESULTS = document.getElementById('token-search-results');
+        const ACTIVE_TOKENS_LIST_EL = document.getElementById('active-tokens-list');
+        const CONFIRM_MODAL_OVERLAY = document.getElementById('confirm-modal-overlay');
+        const BTN_CONFIRM_DELETE = document.querySelector('.btn-confirm-delete');
+
+        const API_BASE = 'https://api.coingecko.com/api/v3';
+        const MARKETS_ENDPOINT = '/coins/markets';
+        
+        const REFRESH_INTERVAL_MS = 60000;
+        const MAX_RETRIES = 3;
+        const USER_TOKENS_STORAGE_KEY = 'wyckoff_user_tokens_v1';
+        const USER_TRADES_STORAGE_KEY = 'wyckoff_trades_v2'; 
+
+        let allCryptoData = [];
+        let btcPrice = null; 
+        let btc1hChange = null; 
+        let btc24hChange = null;
+        let btc7dChange = null; 
+        let btc30dChange = null;
+        let btc1yChange = null; 
+        
+        let refreshTimer = null;
+        let countdownTimer = null;
+        let countdownSeconds = REFRESH_INTERVAL_MS / 1000;
+        let activeAlerts = {};
+        let tradeHistory = {};
+        let currentWyckoffFilter = 'all';
+        let currentDashboardFilter = 'geral';
+        let currentSearchTerm = '';
+        
+        // Dados estáticos de tokens (BASE)
+        const BASE_TOKENS_CONFIG = [
+            { ticker: 'AAVE',   name: 'Aave',              id: 'aave' },
+            { ticker: 'AERO',   name: 'Aerodrome Finance', id: 'aerodrome-finance' },
+            { ticker: 'AR',     name: 'Arweave',           id: 'arweave' },
+            { ticker: 'ARB',    name: 'Arbitrum',          id: 'arbitrum' },
+            { ticker: 'ATH',    name: 'Aethir',            id: 'aethir' },
+            { ticker: 'ATOM',   name: 'Cosmos Hub',        id: 'cosmos' },
+            { ticker: 'AVAX',   name: 'Avalanche',         id: 'avalanche-2' },
+            { ticker: 'BTC',    name: 'Bitcoin',           id: 'bitcoin' },
+            { ticker: 'CPOOL',  name: 'Clearpool',         id: 'clearpool' },
+            { ticker: 'CFG',    name: 'Centrifuge',        id: 'centrifuge' },
+            { ticker: 'DOT',    name: 'Polkadot',          id: 'polkadot' },
+            { ticker: 'ETH',    name: 'Ethereum',          id: 'ethereum' },
+            { ticker: 'ETHFI',  name: 'ether.fi',          id: 'ether-fi' },
+            { ticker: 'EPIC',   name: 'Epic Chain',        id: 'epic-chain' },
+            { ticker: 'GRIFFAIN', name: 'Griffain',        id: 'griffain' },
+            { ticker: 'IMX',    name: 'Immutable',         id: 'immutable-x' },
+            { ticker: 'IO',     name: 'io.net',            id: 'io-net' },
+            { ticker: 'JUP',    name: 'Jupiter',           id: 'jupiter-exchange-solana' },
+            { ticker: 'KAS',    name: 'Kaspa',             id: 'kaspa' },
+            { ticker: 'LTC',    name: 'Litecoin',          id: 'litecoin' },
+            { ticker: 'LDO',    name: 'Lido DAO',          id: 'lido-dao' },
+            { ticker: 'METIS',  name: 'Metis',             id: 'metis-token' },
+            { ticker: 'MORPHO', name: 'Morpho',            id: 'morpho' },
+            { ticker: 'NEAR',   name: 'NEAR',              id: 'near' },
+            { ticker: 'ONDO',   name: 'Ondo',              id: 'ondo-finance' },
+            { ticker: 'PENDLE', name: 'Pendle',            id: 'pendle' },
+            { ticker: 'POL',    name: 'Polygon',           id: 'polygon-ecosystem-token' },
+            { ticker: 'PYTH',   name: 'Pyth Network',      id: 'pyth-network' },
+            { ticker: 'QNT',    name: 'Quant',             id: 'quant-network' },
+            { ticker: 'QUBIC',  name: 'Qubic',             id: 'qubic-network' },
+            { ticker: 'RENDER', name: 'Render',            id: 'render-token' },
+            { ticker: 'RIO',    name: 'Realio Network',    id: 'realio-network' },
+            { ticker: 'RSR',    name: 'Reserve Rights',    id: 'reserve-rights-token' },
+            { ticker: 'SEI',    name: 'Sei Network',       id: 'sei-network' },
+            { ticker: 'SNX',    name: 'Synthetix',         id: 'synthetix-network-token' },
+            { ticker: 'SPELL',  name: 'Spell',             id: 'spell-token' },
+            { ticker: 'STX',    name: 'Stacks',            id: 'blockstack' },
+            { ticker: 'SUI',    name: 'Sui',               id: 'sui' },
+            { ticker: 'SYRUP',  name: 'Maple Finance',     id: 'maple' },
+            { ticker: 'TAI',    name: 'Tars Protocol',     id: 'tars-protocol' },
+            { ticker: 'TRU',    name: 'TrueFi',            id: 'truefi-token' },
+            { ticker: 'VIRTUAL', name: 'Virtuals Protocol', id: 'virtual-protocol' },
+            { ticker: 'VIRTUALS', name: 'Virtuals Protocol', id: 'virtual-protocol' },
+            { ticker: 'ASTER',  name: 'Astar',             id: 'astar' },
+            { ticker: 'XDC',    name: 'XDC Network',       id: 'xdce-crowd-sale' },
+            { ticker: 'XTZ',    name: 'Tezos',             id: 'tezos' },
+            { ticker: 'LINK',   name: 'Chainlink',         id: 'chainlink' }, 
+            { ticker: 'FET',    name: 'Artificial Superintelligence Alliance', id: 'fetch-ai' },
+            { ticker: 'BNB',    name: 'BNB',               id: 'binancecoin' },
+            { ticker: 'XMR',    name: 'Monero',            id: 'monero' },
+            { ticker: 'XLM',    name: 'Stellar',           id: 'stellar' },
+            { ticker: 'HBAR',   name: 'Hedera',            id: 'hedera-hashgraph' },
+            { ticker: 'UNI',    name: 'Uniswap',           id: 'uniswap' },
+            { ticker: 'MNT',    name: 'Mantle',            id: 'mantle' },
+            { ticker: 'TAO',    name: 'Bittensor',         id: 'bittensor' },
+            { ticker: 'ICP',    name: 'Internet Computer', id: 'internet-computer' },
+            { ticker: 'FIL',    name: 'Filecoin',          id: 'filecoin' },
+            { ticker: 'GRT',    name: 'The Graph',         id: 'the-graph' },
+            { ticker: 'APT',    name: 'Aptos',             id: 'aptos' },
+            { ticker: 'ENA',    name: 'Ethena',            id: 'ethena' },
+            { ticker: 'ALGO',   name: 'Algorand',          id: 'algorand' },
+            { ticker: 'PUMP',   name: 'Pump.fun',          id: 'pump-fun' }, 
+            { ticker: 'DASH',   name: 'Dash',              id: 'dash' },
+            { ticker: 'STRK',   name: 'Starknet',          id: 'starknet' },
+            { ticker: 'TIA',    name: 'Celestia',          id: 'celestia' },
+            { ticker: 'KSM',    name: 'Kusama',            id: 'kusama' },
+            { ticker: 'INJ',    name: 'Injective',         id: 'injective-protocol' },
+            { ticker: 'MYX',    name: 'MYX Finance',       id: 'myx-finance' }, 
+            { ticker: 'SAND',   name: 'The Sandbox',       id: 'the-sandbox' },
+            { ticker: 'HNT',    name: 'Helium',            id: 'helium' },
+            { ticker: 'ZK',     name: 'ZKsync',            id: 'zksync' }, 
+            { ticker: 'ZRO',    name: 'LayerZero',         id: 'layerzero' }, 
+            { ticker: 'DIA',    name: 'Dia',               id: 'dia-data' },
+            { ticker: 'KMNO',   name: 'Kamino',            id: 'kamino' }, 
+            { ticker: 'AKT',    name: 'Akash Network',     id: 'akash-network' },
+            { ticker: 'PLUME',  name: 'Plume',             id: 'plume' }, 
+            { ticker: 'AVNT',   name: 'Avantis',           id: 'avantis' }, 
+            { ticker: 'KTA',    name: 'Keeta',             id: 'keeta' }, 
+            { ticker: 'COOKIE', name: 'Cookie DAO',        id: 'cookie' }
+        ];
+
+        let USER_TOKENS_CONFIG = [];
+        let ALL_TOKENS_CONFIG = [];
+
+        // Contexto Wyckoff Estático (Mantido)
+        const STATIC_WYCKOFF_CONTEXT = {
+            'BTC': 'Narrativa: **Layer 1 / Ouro Digital**. Contexto: O Bitcoin é o ativo de reserva e define o tom do mercado. Sua fase atual é de **Distribuição Macro**, sugerindo que correções agressivas são prováveis antes de novas máximas. Acompanhe a força do dólar.',
+            'ETH': 'Narrativa: **Layer 1 / Smart Contracts**. Contexto: O Ethereum está em uma **Fase de Re-acumulação (Fase B/C)**. A força das narrativas de Layer 2 e a transição para PoS suportam a tese de que grandes fundos continuam a absorver liquidez acima de suportes chave.',
+            'KAS': 'Narrativa: **Layer 1 / PoW**. Contexto: Este ativo possui um forte momentum de Mark-up (Fase D/E). O comportamento agressivo de alta sugere exaustão próxima. **Risco:** Pullbacks são violentos; a correção pode iniciar uma Distribuição prolongada.',
+            'IMX': 'Narrativa: **Layer 2 / Gaming**. Contexto: Forte candidato no setor de jogos. A estrutura atual indica uma **correção técnica** em busca de zonas de demanda (Suporte). Isso se encaixa em uma Fase A/B de Acumulação em um timeframe menor, buscando um ponto de partida.',
+            'PENDLE': 'Narrativa: **DeFi / Yield**. Contexto: Após um Mark-up explosivo, o PENDLE mostra sinais de **Distribuição Institucional**. Se a perda de suportes críticos for confirmada, o preço entrará em Redistribuição ou Fase E de Distribuição final.',
+            'CFG': 'Narrativa: **RWA / DeFi**. Contexto: O ativo está em **Acumulação de Fundo (Fase B/C)**. O baixo volume e a volatilidade contida sugerem que o Smart Money está posicionado e aguarda o catalisador. Riscos associados à baixa liquidez.',
+            'RIO': 'Narrativa: **RWA / Tokenização**. Contexto: Estrutura em **Reacumulação Especulativa**. Devido à baixa liquidez e Market Cap, a ação do preço é mais volátil e menos previsível do que a Acumulação Wyckoff Clássica.',
+            'VIRTUAL': 'Narrativa: **Gaming / Metaverso**. Contexto: Ativo recém-listado. Volatilidade extrema, alternando entre mini-fases de Distribuição e Reacumulação em curtos espaços de tempo. Não é recomendado para hold de longo prazo sem Stop Loss.',
+            'GRIFFAIN': 'Narrativa: **Micro-Cap / Especulativo**. Contexto: Risco altíssimo. A assimetria extrema é dependente de fluxo especulativo. As Fases Wyckoff (micro) são sujeitas a manipulações típicas de micro-Wyckoff.',
+            'LINK': 'Narrativa: **Oráculos / Infraestrutura**. Contexto: Ativo de infraestrutura essencial. Está em um padrão claro de **Acumulação/Reacumulação** com fundos ascendentes. O mercado está absorvendo a oferta para um futuro rompimento (Mark-up).',
+            'FET': 'Narrativa: **AI (Inteligência Artificial)**. Contexto: Uma das líderes em AI. Sua estrutura é de **Mark-up Estendido**. Procure sinais de exaustão (Distribuição) ou use pullbacks para acumulação em suportes relevantes.',
+            'BNB': 'Narrativa: **Exchange / Layer 1**. Contexto: Ativo da Binance. Acompanha de perto o ciclo do BTC. Estrutura lateralizada que oscila entre Distribuição e Reacumulação de Topo. Risco de regulação afeta o preço.',
+            'XMR': 'Narrativa: **Privacidade / PoW**. Contexto: Ativo maduro, focado em privacidade. Sua longa **Acumulação Lateral (Fase B)** sugere que uma grande movimentação (Mark-up) está sendo preparada (Causa -> Efeito).',
+            'XLM': 'Narrativa: **Pagamentos / Layer 1**. Contexto: O ativo busca o fundo em um ciclo de **Acumulação Prolongada**. O baixo volume e a lateralidade sugerem que a demanda é fraca, necessitando de um evento de "Spring" (Fase C) para atrair liquidez.',
+            'HBAR': 'Narrativa: **Governança / DLT**. Contexto: Forte foco institucional. Encontra-se nas **Fases Iniciais de Acumulação**, onde o mercado está buscando liquidez. É um bom ativo para DCA (Dollar-Cost Averaging) em zonas de demanda.',
+            'UNI': 'Narrativa: **DeFi / DEX**. Contexto: Principal DEX do mercado. Está em **Mark-up (Fase D)**. Possível Reacumulação Intermediária. Enquanto mantiver suportes, a tendência é de alta contínua.',
+            'MNT': 'Narrativa: **Layer 2 / Ecossistema**. Contexto: Novo ativo de ecossistema. Estrutura de **Acumulação** com potencial de rompimento após absorver a oferta. Siga a liquidez do ecossistema.',
+            'TAO': 'Narrativa: **AI / DePIN**. Contexto: Altamente especulativo devido à narrativa de AI. Os ciclos Wyckoff são **acelerados**. Requer análise de volume em tempo real para identificar clímax de compra/venda.',
+            'ICP': 'Narrativa: **Cloud / Web3**. Contexto: Reversão recente de tendência. Está em **Reacumulação**, testando os suportes para consolidar o movimento. Uma falha de suporte indica que a euforia inicial acabou.',
+            'FIL': 'Narrativa: **Armazenamento / DePIN**. Contexto: Construindo um fundo após uma forte tendência de baixa. Encontra-se na **Fase B/C de Acumulação**, onde a volatidade deve ser comprimida antes do Mark-up.',
+            'GRT': 'Narrativa: **Infraestrutura / Indexação**. Contexto: Essencial para o ecossistema. Está em **Mark-up**, mas se aproximando de uma zona de Distribuição/Resistência. Cuidado com o SOT (Shift of Trend) de topo.',
+            'APT': 'Narrativa: **Layer 1**. Contexto: Ciclo de **Acumulação** ativo. Está próximo a uma região de valor (Suporte). Aguarde por um sinal de "Spring" (Fase C) para entradas de maior risco/recompensa.',
+            'ENA': 'Narrativa: **Stablecoin Sintética / DeFi**. Contexto: Ativo muito novo e volátil. A estrutura sugere **mini-Distribuição** no curto prazo. Risco de liquidação alto devido à natureza sintética.',
+            'ALGO': 'Narrativa: **Layer 1**. Contexto: Longa **Acumulação** com compressão de volatilidade (coiling). É um sinal clássico de que um movimento forte está próximo, seja para cima ou para baixo.',
+            'PUMP': 'Narrativa: **Memecoin / Solana**. Contexto: Extrema volatilidade e risco. Use o micro-Wyckoff. As fases são muito rápidas e dependem puramente da euforia da comunidade e do fluxo de capital.',
+            'DASH': 'Narrativa: **Pagamentos / Privacidade**. Contexto: **Acumulação de Fundo (Fase B)**. Possui baixa atração de volume no momento. A espera é por um catalisador (Fase C).',
+            'STRK': 'Narrativa: **Layer 2 / ZK Rollup**. Contexto: Pós-lançamento. Está em **Acumulação**, com o mercado definindo o valor justo. Testando a demanda em níveis baixos, o que é comum para novos L2s.',
+            'TIA': 'Narrativa: **Modularidade**. Contexto: Ativo forte em **Mark-up**. Está em **Realização (Pullback)**. A busca é por uma zona de Reacumulação intermediária para a próxima perna de alta.',
+            'KSM': 'Narrativa: **Ecossistema Polkadot**. Contexto: **Acumulação (Fase B)**. O mercado está quieto. É o momento de buscar liquidez antes de um Mark-up. Sinal de longo prazo.',
+            'INJ': 'Narrativa: **DeFi / Layer 1**. Contexto: Forte tendência. Em **Pullback/Realização**. A procura é por uma zona de Reacumulação para continuar o ciclo Mark-up.',
+            'MYX': 'Narrativa: **DEX / Perpétuos**. Contexto: Ativo novo. Fases iniciais de teste de mercado. **Volatilidade de descoberta de preço**. Não há um padrão Wyckoff claro ainda.',
+            'SAND': 'Narrativa: **Metaverso / Gaming**. Contexto: **Acumulação Ampla**. O mercado está no processo de absorver a oferta. Um rompimento da faixa lateral indicará o início de um novo Mark-up.',
+            'HNT': 'Narrativa: **DePIN / IoT**. Contexto: **Mark-up estendido**. Sinais de que o ciclo de alta está maduro, entrando em zonas de Distribuição. Cuidado com picos de volume que não resultam em fechamentos altos.',
+            'ZK': 'Narrativa: **Layer 2 / ZK Rollup**. Contexto: Novo ativo. Estrutura de **Acumulação Pós-Lançamento**. O mercado está definindo a base para o futuro.',
+            'ZRO': 'Narrativa: **Infraestrutura / Interoperabilidade**. Contexto: Novo ativo. Volatilidade, testes iniciais de Oferta e Demanda. A fase inicial de Acumulação deve ser volátil.',
+            'DIA': 'Narrativa: **Oráculos / Dados**. Contexto: **Acumulação de Fundo** com compressão de volatilidade. A base de preço está sendo construída. Aguarda-se o rompimento.',
+            'KMNO': 'Narrativa: **DeFi / Lending**. Contexto: Ativo muito novo. **Testes iniciais de Demanda**. Risco alto até que um histórico de preços se estabeleça.',
+            'AKT': 'Narrativa: **DePIN / Nuvem Descentralizada**. Contexto: **Mark-up forte**. Está buscando Resistências históricas, indicando um possível início de Distribuição. Mantenha cautela.',
+            'PLUME': 'Narrativa: **RWA / Layer 2**. Contexto: Ativo novo. **Acumulação** em andamento, com pouco histórico. Volatilidade esperada.',
+            'AVNT': 'Narrativa: **Derivativos / Exchange**. Contexto: Ativo novo. Fases iniciais voláteis de **Teste de Oferta e Demanda**.',
+            'KTA': 'Narrativa: **Gaming / Web3**. Contexto: Ativo novo. **Alta Volatilidade**. Aguarda-se a definição de um range de acumulação.',
+            'COOKIE': 'Narrativa: **Web3 / Marketing**. Contexto: Ativo novo. **Fases iniciais de Teste** de Mercado. Baixa liquidez e alta sensibilidade a fluxos de capital.'
+        };
+
+        // --- FUNÇÕES DE CÁLCULO E FORMATAÇÃO (Mantidas) ---
+
+        function calculateRSIHeuristic(change24h, change7d) {
+            if (isNaN(change24h) || isNaN(change7d)) {
+                return { text: 'N/D', class: '', value: 50 };
+            }
+            let rsi = 50 + (change24h * 1.5) + (change7d * 0.2);
+            rsi = Math.min(100, Math.max(0, rsi));
+            let className = '';
+            if (rsi >= 70) className = 'rsi-high';
+            else if (rsi <= 30) className = 'rsi-low';
+            return { text: rsi.toFixed(0), class: className, value: rsi };
+        }
+
+        function calculateSRProximity(price, rangeLow, rangeHigh) {
+            if (!price || !rangeLow || !rangeHigh || price === 0 || rangeLow === 0) return { text: 'N/D', class: 'neutral', value: 0 };
+            
+            const range = rangeHigh - rangeLow;
+            if (range <= 0) return { text: 'Lateralizado', class: 'neutral', value: 0.5 };
+
+            const proximityFactor = 0.40; 
+
+            const distToLow = price - rangeLow;
+            const distToHigh = rangeHigh - price;
+
+            if (price > rangeHigh) return { text: 'Clímax/TOPO', class: 'sr-resistance', value: 1 };
+            if (price < rangeLow) return { text: 'Clímax/FUNDO', class: 'sr-support', value: 0 };
+
+
+            if (distToLow / range < proximityFactor) {
+                return { text: 'Próx. Suporte', class: 'sr-support', value: (distToLow / range) };
+            }
+            if (distToHigh / range < proximityFactor) {
+                return { text: 'Próx. Resist.', class: 'sr-resistance', value: (distToHigh / range) };
+            }
+
+            return { text: 'Meio de Range', class: 'neutral', value: 0.5 };
+        }
+
+        function determineWyckoffDynamic(change7d, change30d, marketCap, rsiValue) {
+            if (isNaN(change7d) || isNaN(change30d) || isNaN(marketCap) || isNaN(rsiValue)) {
+                return { text: 'Fase indefinida', class: '', phase: 'neutro' };
+            }
+            const marketCapThreshold = 500000000;
+            const accThreshold = (marketCap < marketCapThreshold) ? 10 : 5;
+            const distThreshold = (marketCap < marketCapThreshold) ? -10 : -5;
+
+            if (rsiValue <= 35 && change30d < -20) {
+                return { text: 'Fase C (Spring/Testes de fundo)', class: '', phase: 'acc' };
+            }
+            if (rsiValue >= 70 && change30d > 25) {
+                return { text: 'Fase E (Clímax/Distribuição final)', class: '', phase: 'dist' };
+            }
+            if (change7d < distThreshold && change30d < -15) {
+                return { text: 'Fase D/E (Distribuição)', class: '', phase: 'dist' };
+            }
+            if (change7d > accThreshold && change30d > 10) {
+                return { text: 'Fase D (Markup/Acumulação tardia)', class: '', phase: 'acc' };
+            }
+            return { text: 'Fase B (Lateralização/Neutro)', class: '', phase: 'neutro' };
+        }
+
+        function calculateAttractionScore(athDropPct, rsiValue, wyckoffPhase, erScore) {
+            if (athDropPct === null || isNaN(rsiValue)) return null;
+            let score = 0;
+
+            if (athDropPct <= -70) score += 40;
+            else if (athDropPct <= -50) score += 30;
+            else if (athDropPct <= -30) score += 20;
+            else if (athDropPct <= -15) score += 10;
+
+            if (rsiValue <= 25) score += 30;
+            else if (rsiValue <= 35) score += 20;
+            else if (rsiValue <= 45) score += 10;
+            else if (rsiValue <= 60) score += 5;
+
+            if (wyckoffPhase === 'acc') score += 20;
+            else if (wyckoffPhase === 'neutro') score += 5;
+            else if (wyckoffPhase === 'dist') score -= 20;
+
+            if (!isNaN(erScore)) {
+                if (erScore <= 30) score += 10;
+                else if (erScore >= 70) score -= 10;
+            }
+
+            return Math.min(100, Math.max(0, score));
+        }
+
+        function calculateVsBtcPerformance(altChange, btcChange) {
+            if (altChange === null || btcChange === null || isNaN(altChange) || isNaN(btcChange)) {
+                return { text: 'N/D', class: 'neutral', value: 0 };
+            }
+            
+            const diff = altChange - btcChange;
+            const sign = diff > 0 ? '+' : '';
+            const className = diff > 0 ? 'positive' : diff < 0 ? 'negative' : 'neutral';
+
+            return { text: sign + diff.toFixed(2) + '%', class: className, value: diff };
+        }
+
+        function generateDynamicWyckoffSignal(item) {
+            const change7d = item.price_change_percentage_7d_in_currency;
+            const change30d = item.price_change_percentage_30d_in_currency;
+            const marketCap = item.market_cap;
+
+            const rsiHeuristic = calculateRSIHeuristic(
+                item.price_change_percentage_24h_in_currency,
+                change7d
+            );
+            const rsiValue = parseFloat(rsiHeuristic.text === 'N/D' ? '50' : rsiHeuristic.text);
+            const wyckoffDynamic = determineWyckoffDynamic(change7d, change30d, marketCap, rsiValue);
+
+            return {
+                text: wyckoffDynamic.text,
+                class: wyckoffDynamic.class,
+                phase: wyckoffDynamic.phase,
+                rsiHeuristic
+            };
+        }
+
+        function estimateFutureRange(currentPrice, change7d, change30d) {
+            if (!currentPrice || isNaN(currentPrice)) {
+                return {
+                    weekLow: null, weekHigh: null
+                };
+            }
+            const vol7 = Math.abs(change7d || 0) / 100;
+
+            const weekLow = currentPrice * (1 - (vol7 || 0.08));
+            const weekHigh = currentPrice * (1 + (vol7 || 0.08));
+
+            return { weekLow, weekHigh };
+        }
+
+        function formatPrice(value) {
+            if (value === null || value === undefined || isNaN(value)) return 'N/D';
+            if (value >= 1) return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            if (value >= 0.01) return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+            return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+        }
+        
+        function formatDollarValue(value) {
+            if (value === null || value === undefined || isNaN(value)) return 'N/D';
+            const sign = value >= 0 ? '+' : '';
+            const absValue = Math.abs(value);
+
+            if (absValue >= 1e9) return sign + '$' + (absValue / 1e9).toFixed(2) + 'B';
+            if (absValue >= 1e6) return sign + '$' + (absValue / 1e6).toFixed(2) + 'M';
+            if (absValue >= 1000) return sign + '$' + absValue.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            
+            // Para valores menores que 1000 USD, exibe mais casas decimais para USD
+            if (absValue >= 1) return sign + '$' + absValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            return sign + '$' + absValue.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+        }
+
+        function formatPercent(value) {
+            if (value === null || value === undefined || isNaN(value)) return 'N/D';
+            const sign = value > 0 ? '+' : '';
+            return sign + value.toFixed(2) + '%';
+        }
+
+        function formatTokenCount(value) {
+            if (value === null || value === undefined || isNaN(value)) return 'N/D';
+            if (value >= 1e9) return (value / 1e9).toFixed(2) + 'B';
+            if (value >= 1e6) return (value / 1e6).toFixed(2) + 'M';
+            if (value >= 1) return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+            return value.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+        }
+
+        function getTradingViewSymbol(ticker) {
+            const baseTicker = ticker.toUpperCase();
+            const preferredExchanges = {
+                'BTC': 'BINANCE', 'ETH': 'BINANCE', 'KAS': 'MEXC', 'IMX': 'BINANCE', 'PENDLE': 'BINANCE',
+                'SEI': 'BINANCE', 'SUI': 'BINANCE', 'STX': 'BINANCE', 'NEAR': 'BINANCE', 'RENDER': 'BINANCE',
+                'ETHFI': 'BINANCE', 'VIRTUAL': 'GATEIO', 'TRU': 'BINANCE', 'CPOOL': 'KUCOIN', 'RIO': 'KUCOIN',
+                'CFG': 'GATEIO', 'TAI': 'GATEIO', 'GRIFFAIN': 'MEXC', 'AAVE': 'BINANCE', 'ATOM': 'BINANCE',
+                'AVAX': 'BINANCE', 'LTC': 'BINANCE', 'LDO': 'BINANCE', 'ONDO': 'BINANCE', 'PYTH': 'BINANCE',
+                'SNX': 'BINANCE', 'QNT': 'BINANCE', 'RSR': 'BINANCE', 'QUBIC': 'MEXC', 'EPIC': 'MEXC',
+                'POL': 'BINANCE', 'XDC': 'KUCOIN', 'METIS': 'BINANCE', 'IO': 'BINANCE', 'JUP': 'BINANCE',
+                'MORPHO': 'BINANCE', 'ASTER': 'GATEIO', 'SYRUP': 'BINANCE', 'XTZ': 'BINANCE',
+                'LINK': 'BINANCE', 'FET': 'BINANCE', 'BNB': 'BINANCE', 'XMR': 'BINANCE', 'XLM': 'BINANCE', 'HBAR': 'BINANCE',
+                'UNI': 'BINANCE', 'MNT': 'BINANCE', 'TAO': 'BINANCE', 'ICP': 'BINANCE', 'FIL': 'BINANCE',
+                'GRT': 'BINANCE', 'APT': 'BINANCE', 'ENA': 'BINANCE', 'ALGO': 'BINANCE', 'PUMP': 'GATEIO',
+                'DASH': 'BINANCE', 'STRK': 'BINANCE', 'TIA': 'BINANCE', 'KSM': 'BINANCE', 'INJ': 'BINANCE',
+                'MYX': 'GATEIO', 'SAND': 'BINANCE', 'HNT': 'BINANCE', 'ZK': 'BINANCE', 'ZRO': 'BINANCE',
+                'DIA': 'BINANCE', 'KMNO': 'BYBIT', 'AKT': 'KUCOIN', 'PLUME': 'GATEIO', 'AVNT': 'GATEIO',
+                'KTA': 'MEXC', 'COOKIE': 'GATEIO',
+                'SOL': 'BINANCE', 'DOT': 'BINANCE', 'SHIB': 'BINANCE' 
+            };
+            const exchange = preferredExchanges[baseTicker] || 'BINANCE';
+            return `${exchange}:${baseTicker}USDT`;
+        }
+
+        function showToast(message, duration = 3000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            requestAnimationFrame(() => toast.classList.add('show'));
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 200);
+            }, duration);
+        }
+
+        const tooltipOverlay = document.getElementById('metric-tooltip-overlay');
+        const tooltipTitle = document.getElementById('metric-tooltip-title');
+        const tooltipBody = document.getElementById('metric-tooltip-body');
+        const tooltipCloseBtn = document.getElementById('metric-tooltip-close');
+
+        function openMetricTooltip(title, bodyText) {
+            tooltipTitle.textContent = title;
+            tooltipBody.innerHTML = bodyText;
+            tooltipOverlay.classList.add('active');
+        }
+
+        function closeMetricTooltip() {
+            tooltipOverlay.classList.remove('active');
+        }
+
+        tooltipCloseBtn.addEventListener('click', closeMetricTooltip);
+        tooltipOverlay.addEventListener('click', (e) => {
+            if (e.target === tooltipOverlay) closeMetricTooltip();
+        });
+
+        // Função de Atraso para Backoff
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        
+        // --- GESTÃO DE TOKENS DO USUÁRIO ---
+
+        function loadUserTokens() {
+            const storedTokens = localStorage.getItem(USER_TOKENS_STORAGE_KEY);
+            
+            // 1. Carrega tokens do usuário com tratamento de erro
+            try {
+                USER_TOKENS_CONFIG = storedTokens ? JSON.parse(storedTokens) : [];
+            } catch {
+                USER_TOKENS_CONFIG = [];
+            }
+            
+            // 2. Garante que ALL_TOKENS_CONFIG começa com a lista base
+            let tokensToMerge = [...BASE_TOKENS_CONFIG];
+
+            // 3. Adiciona os tokens do usuário (removendo duplicatas)
+            const baseIds = new Set(BASE_TOKENS_CONFIG.map(t => t.id));
+
+            USER_TOKENS_CONFIG.forEach(userToken => {
+                if (!baseIds.has(userToken.id)) {
+                    tokensToMerge.push(userToken);
+                } else {
+                    // O token foi adicionado pelo usuário, mas já estava na base. 
+                    // Se for um caso em que o ticker/nome são diferentes, o que pode causar bugs, a lista base tem precedência, mas o token do usuário permanece na lista USER_TOKENS_CONFIG para que possa ser removido.
+                }
+            });
+            
+            // Remove duplicatas finais por ID (caso algum token base tenha sido modificado)
+            const uniqueTokens = [];
+            const seenIds = new Set();
+            tokensToMerge.forEach(token => {
+                if (!seenIds.has(token.id)) {
+                    seenIds.add(token.id);
+                    uniqueTokens.push(token);
+                }
+            });
+
+            ALL_TOKENS_CONFIG = uniqueTokens;
+        }
+
+        function saveUserTokens() {
+            localStorage.setItem(USER_TOKENS_STORAGE_KEY, JSON.stringify(USER_TOKENS_CONFIG));
+        }
+
+        function addToken(ticker, name, id) {
+            const token = { ticker: ticker.toUpperCase(), name, id };
+            if (ALL_TOKENS_CONFIG.find(t => t.id === id)) {
+                showToast(`O token ${ticker.toUpperCase()} já está na sua lista.`, 2000);
+                return;
+            }
+            USER_TOKENS_CONFIG.push(token);
+            saveUserTokens();
+            loadUserTokens(); 
+            renderActiveTokensList();
+            showToast(`Token ${ticker.toUpperCase()} adicionado! Atualizando dados...`, 2500);
+            fetchMarketData(); 
+        }
+
+        function removeToken(id, isUserToken = true) {
+            if (isUserToken) {
+                const tokenIndex = USER_TOKENS_CONFIG.findIndex(t => t.id === id);
+                
+                if (tokenIndex !== -1) {
+                    const tokenTicker = USER_TOKENS_CONFIG[tokenIndex].ticker;
+                    
+                    // Remove do histórico de trades e alertas 
+                    delete tradeHistory[tokenTicker];
+                    delete activeAlerts[tokenTicker];
+                    saveTradesToStorage();
+                    saveAlertsToStorage();
+
+                    USER_TOKENS_CONFIG.splice(tokenIndex, 1);
+                    saveUserTokens();
+                    loadUserTokens(); 
+                    renderActiveTokensList();
+                    showToast(`Token ${tokenTicker} removido com sucesso.`, 2000);
+                    renderAll(); 
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function renderActiveTokensList() {
+            const userTickers = USER_TOKENS_CONFIG.map(t => {
+                return `<span style="cursor:pointer; font-weight:600; color:var(--negative);" onclick="openConfirmModal('${t.id}', '${t.ticker}', true)">${t.ticker}</span>`;
+            }).join(', ');
+            
+            ACTIVE_TOKENS_LIST_EL.innerHTML = userTickers.length > 0 ? userTickers : 'Nenhum token adicionado pelo usuário.';
+        }
+
+        // --- GESTÃO DE TRADES E ALERTAS ---
+
+        function loadDataFromStorage() {
+            loadUserTokens(); 
+            const storedAlerts = localStorage.getItem('wyckoff_alerts_v3');
+            const storedTrades = localStorage.getItem(USER_TRADES_STORAGE_KEY);
+            try {
+                activeAlerts = storedAlerts ? JSON.parse(storedAlerts) : {};
+                tradeHistory = storedTrades ? JSON.parse(storedTrades) : {};
+            } catch {
+                activeAlerts = {};
+                tradeHistory = {};
+            }
+        }
+
+        function saveAlertsToStorage() {
+            localStorage.setItem('wyckoff_alerts_v3', JSON.stringify(activeAlerts));
+        }
+
+        function saveTradesToStorage() {
+            localStorage.setItem(USER_TRADES_STORAGE_KEY, JSON.stringify(tradeHistory));
+        }
+
+        function registerTrade(ticker, type, price, quantity, totalValue, currentPrice) {
+            if (!tradeHistory[ticker]) tradeHistory[ticker] = [];
+
+            if (type === 'buy') {
+                tradeHistory[ticker].push({
+                    id: Date.now().toString(),
+                    ticker: ticker.toUpperCase(),
+                    type: 'BUY',
+                    price: parseFloat(price),
+                    quantity: parseFloat(quantity),
+                    totalValue: parseFloat(totalValue),
+                    date: new Date().toISOString(),
+                    closed: false
+                });
+                showToast(`Compra simulada de ${formatTokenCount(quantity)} ${ticker} registrada.`, 3000);
+            } 
+            else if (type === 'sell') {
+                const openTradeIndex = tradeHistory[ticker].findIndex(t => t.type === 'BUY' && !t.closed);
+                
+                if (openTradeIndex === -1) {
+                    showToast(`Erro: Não há posição de COMPRA aberta para ${ticker} para fechar.`, 4000);
+                    return;
+                }
+
+                const openTrade = tradeHistory[ticker][openTradeIndex];
+                const soldQuantity = quantity;
+                const soldValue = soldQuantity * currentPrice;
+                const buyPriceForSoldQty = openTrade.price * soldQuantity;
+                
+                const profitLossPrice = soldValue - buyPriceForSoldQty;
+                const profitLossPct = (profitLossPrice / buyPriceForSoldQty) * 100;
+                
+                // 1. Registra a transação de Venda/Fechamento
+                tradeHistory[ticker].push({
+                    id: Date.now().toString(),
+                    ticker: ticker.toUpperCase(),
+                    type: 'SELL',
+                    price: currentPrice,
+                    quantity: soldQuantity,
+                    totalValue: soldValue,
+                    date: new Date().toISOString(),
+                    closed: true,
+                    profitLossPct: profitLossPct,
+                    profitLossPrice: profitLossPrice
+                });
+
+                // 2. Atualiza a posição de compra original
+                openTrade.quantity -= soldQuantity;
+                openTrade.totalValue = openTrade.quantity * openTrade.price; 
+                
+                if (openTrade.quantity <= 0.0000001) { 
+                    openTrade.closed = true;
+                    openTrade.quantity = 0;
+                    openTrade.totalValue = 0;
+                }
+                
+                const action = profitLossPct >= 0 ? 'Lucro' : 'Prejuízo';
+                showToast(`✅ ${action} de ${formatPercent(profitLossPct)} em ${formatTokenCount(soldQuantity)} ${ticker} registrado.`, 4000);
+            }
+            
+            saveTradesToStorage();
+            renderCardTrades(ticker);
+        }
+
+        function renderCardAlerts(ticker) {
+            const container = document.querySelector(`.card[data-ticker="${ticker}"] .active-alerts-list`);
+            if (!container) return;
+
+            const alerts = activeAlerts[ticker] ? Object.values(activeAlerts[ticker]) : [];
+            if (alerts.length === 0) {
+                container.innerHTML = '<p style="margin:0; font-size:0.7rem;">Nenhum alerta de preço ativo.</p>';
+                return;
+            }
+
+            let html = '<p style="margin:0 0 4px; font-weight:600; color:var(--text-main);">Alertas ativos:</p>';
+            alerts.forEach(a => {
+                html += `
+                    <div class="alert-item">
+                        <span>
+                            ${a.type === 'buy' ? 'COMPRA' : 'VENDA'} @ ${formatPrice(a.price)}
+                            ${a.triggered ? '<span style="color:#f59e0b;font-weight:600;"> (ATINGIDO)</span>' : ''}
+                        </span>
+                        <button class="remove-btn" onclick="(function(){ removeAlert('${ticker}', '${a.id}'); })()">remover</button>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function renderCardTrades(ticker) {
+            const container = document.querySelector(`.card[data-ticker="${ticker}"] .trade-history-list`);
+            const itemData = allCryptoData.find(c => c.ticker === ticker);
+            const currentPrice = itemData ? itemData.current_price : null;
+
+            if (!container) return;
+
+            const trades = tradeHistory[ticker] || [];
+            if (trades.length === 0) {
+                container.innerHTML = '<p style="margin:0; font-size:0.7rem;">Nenhum histórico de trade simulado.</p>';
+                return;
+            }
+
+            let html = '';
+            
+            // Exibe a posição em aberto no topo, se houver
+            const openBuyTrade = trades.find(t => t.type === 'BUY' && !t.closed);
+            if (openBuyTrade && currentPrice) {
+                const currentPnlPrice = (currentPrice - openBuyTrade.price) * openBuyTrade.quantity;
+                const currentPnlPct = (currentPnlPrice / openTrade.totalValue) * 100;
+                const statusClass = currentPnlPct >= 0 ? 'val-positive' : 'val-negative';
+                
+                html += `
+                    <div class="history-item" style="background: var(--accent-soft); padding: 5px; border-radius: 4px; margin-bottom: 5px;">
+                        <span>
+                            **POSIÇÃO ABERTA** (${formatTokenCount(openBuyTrade.quantity)} ${openBuyTrade.ticker})
+                            <br>Custo Médio @ ${formatPrice(openBuyTrade.price)}
+                        </span>
+                        <span class="history-pnl ${statusClass}">
+                            ${formatPercent(currentPnlPct)}
+                            <br>${formatDollarValue(currentPnlPrice)}
+                        </span>
+                    </div>
+                `;
+            }
+
+            // Exibe os últimos trades (compras e vendas fechadas)
+            const closedTrades = trades.filter(t => t.closed).slice(-5).reverse();
+            
+            closedTrades.forEach(t => { 
+                let pnlDisplay = '';
+                let statusClass = '';
+
+                if (t.type === 'SELL') { 
+                    statusClass = t.profitLossPct >= 0 ? 'val-positive' : 'val-negative';
+                    pnlDisplay = `<span class="history-pnl ${statusClass}">
+                                    ${formatPercent(t.profitLossPct)}
+                                    <br>${formatDollarValue(t.profitLossPrice)}
+                                  </span>`;
+                     html += `
+                        <div class="history-item">
+                            <span>
+                                **VENDA/FECH.** (${formatTokenCount(t.quantity)} ${t.ticker})
+                                <br>@ ${formatPrice(t.price)}
+                            </span>
+                            ${pnlDisplay}
+                        </div>
+                    `;
+                } else if (t.type === 'BUY') { // Exibe compras fechadas (se houver lógica para isso)
+                    html += `
+                        <div class="history-item">
+                            <span>
+                                **COMPRA FECHADA** (${formatTokenCount(t.quantity)} ${t.ticker})
+                                <br>@ ${formatPrice(t.price)}
+                            </span>
+                        </div>
+                    `;
+                }
+            });
+            container.innerHTML = `<p style="margin:0 0 4px; font-weight:600; color:var(--text-main);">Histórico de trades (Simulação):</p>` + html;
+        }
+
+        // --- FUNÇÃO DE INTERPRETAÇÃO E TOOLTIP (Mantida) ---
+
+        function getAnalyticalInterpretation(label, value, item, isValue) {
+            const ticker = item.ticker;
+            
+            // Tenta obter o contexto estático para o token, senão usa um padrão
+            const fullContext = STATIC_WYCKOFF_CONTEXT[ticker] || 'Narrativa: **Sem narrativa específica**. Contexto: Ativo dinamicamente adicionado. Nenhuma análise Wyckoff estática disponível. Use a análise dinâmica.';
+            const match = fullContext.match(/Narrativa:\s*\*\*(.*?)\*\*/);
+            const narrative = match ? match[1].trim() : 'Geral (Adicionado Dinamicamente)';
+            
+            if (isValue) {
+                switch (label) {
+                    case 'Preço atual':
+                        return `**Métrica:** Preço de negociação mais recente: **${formatPrice(item.current_price)}**. Este é o valor que o mercado atribui ao ativo neste instante.
+                        <br><br>**Análise:** O preço atual é a base para todos os cálculos de Risco e Recompensa. É o ponto de referência para definir seus pontos de entrada (Suporte) e saída/realização de lucros (Resistência).`;
+                    
+                    case 'Variação 1h':
+                        const c1h = item.price_change_percentage_1h_in_currency;
+                        return `**Métrica:** Variação de ${formatPercent(c1h)} na última hora.
+                        <br><br>**Análise:** Este é o **Momentum Imediato**. Ele indica a euforia ou pânico em tempo real. Uma variação forte (>5%) em 1h é um sinal de **extrema volatilidade** e sugere que a movimentação pode ser insustentável sem um catalisador forte. É útil para scalping, mas perigoso para estratégias de longo prazo.`;
+
+                    case 'Variação 24h':
+                        const c24h = item.price_change_percentage_24h_in_currency;
+                        return `**Métrica:** Variação de ${formatPercent(c24h)} nas últimas 24 horas.
+                        <br><br>**Análise:** Este é o **Momentum Diário**. Variações significativas (como +10% ou -10%) indicam **euforia ou pânico** intenso. Se for um *pullback* (queda) e o preço estiver próximo a um Suporte chave, pode sinalizar uma oportunidade de compra. Se for uma alta (euforia) próxima a uma Resistência, sugere cautela.`;
+
+                    case 'Variação 7D':
+                        const c7d = item.price_change_percentage_7d_in_currency;
+                        return `**Métrica:** Variação de ${formatPercent(c7d)} na última semana.
+                        <br><br>**Análise:** Define a **Tendência de Curto Prazo**. Uma variação positiva forte e sustentada (>15%) é típica de uma fase de *Mark-up* (alta) de Wyckoff. Uma queda contínua sugere que o ativo pode estar em fase de Distribuição ou Reacumulação de Fundo.`;
+
+                    case 'Variação 30D':
+                        const c30d = item.price_change_percentage_30d_in_currency;
+                        return `**Métrica:** Variação de ${formatPercent(c30d)} no último mês.
+                        <br><br>**Análise:** Este é o **Indicador Macro**. É crucial para determinar a fase principal de Wyckoff. Ganhos acima de 30% em 30 dias sugerem que o ativo está maduro para Distribuição (realização de lucros). Quedas profundas são a base para uma futura Acumulação.`;
+                    
+                    case 'Alpha vs. BTC (1h)':
+                    case 'Alpha vs. BTC (7D)':
+                    case 'Alpha vs. BTC (30D)':
+                        let period = label.match(/\((.*?)\)/)[1];
+                        let alphaAnalysis;
+                        if (value > 0.5) {
+                            alphaAnalysis = `O ativo **superou o Bitcoin** em **${formatPercent(value)}** neste período. **A conclusão é de Força Relativa (ALPHA)**. Isso significa que o dinheiro está saindo do BTC e entrando neste ativo.`;
+                        } else if (value < -0.5) {
+                            alphaAnalysis = `O ativo **perdeu valor contra o Bitcoin** em **${formatPercent(value)}** neste período. **A conclusão é de Fraqueza Relativa (BETA)**. Indica que há uma pressão vendedora específica ou que os investidores estão retornando ao BTC.`;
+                        } else {
+                            alphaAnalysis = `O desempenho está em linha com o Bitcoin. **A conclusão é Neutra**.`;
+                        }
+                        return `**Métrica:** Mede o desempenho do ativo comparado ao Bitcoin (${period}).
+                        <br><br>**Análise:** O Alpha é o indicador da migração de capital. **Alpha positivo é sempre um sinal de BULLISH para Altcoins**, pois mostra que o ativo é mais forte que a referência do mercado. Utilize o Alpha para decidir quais Altcoins comprar após uma correção do BTC.`;
+
+                    case 'Proximidade S/R (Heurística)':
+                        const srText = item.sr_proximity.text;
+                        const srClass = item.sr_proximity.class;
+                        
+                        if (srClass === 'sr-support') {
+                            return `**Métrica:** O preço está na **Zona de Suporte**, indicando que está próximo ao fundo do range semanal.
+                            <br><br>**Análise & Decisão:** **ALTO POTENCIAL DE COMPRA**. Esta é a melhor zona para entrar, pois o risco (medido pelo Stop Loss) é baixo, e o potencial de retorno (até a Resistência) é alto. O Suporte atrai compradores institucionais.`;
+                        } else if (srClass === 'sr-resistance') {
+                            return `**Métrica:** O preço está na **Zona de Resistência**, indicando que está próximo ao topo do range semanal.
+                            <br><br>**Análise & Decisão:** **RISCO DE REALIZAÇÃO DE LUCROS**. Esta é uma zona onde os vendedores tendem a aparecer. É o momento ideal para realizar lucros ou reduzir a exposição. Evite novas compras aqui.`;
+                        }
+                        return `**Métrica:** O preço está no **Meio do Range** (distante de S/R).
+                        <br><br>**Análise & Decisão:** **NEUTRO/AGUARDAR**. O risco/recompensa não é favorável. Tentar operar no meio do range é arriscado. Espere o preço se aproximar de um Suporte para comprar ou de uma Resistência para vender/realizar.`;
+
+                    case 'RSI heurístico (força relativa aproximada)':
+                        const rsi = item.rsi_heuristic.text;
+                        let rsiAnalysis;
+                        if (parseFloat(rsi) >= 70) { rsiAnalysis = `O RSI em **${rsi}** indica **SOBRE-COMPRA** (ativo muito caro). **DECISÃO: Venda/Realize Lucros**. O risco de correção é iminente.`; } 
+                        else if (parseFloat(rsi) <= 30) { rsiAnalysis = `O RSI em **${rsi}** indica **SOBRE-VENDA** (ativo muito barato). **DECISÃO: Procure entradas**. O ativo está tecnicamente descontado e a reversão de tendência pode estar próxima.`; } 
+                        else { rsiAnalysis = `O RSI em **${rsi}** indica **NEUTRALIDADE**.`; }
+                        return `**Métrica:** Índice de Força Relativa (RSI) aproximado: **${rsi}**. Ele mede a velocidade e a mudança dos movimentos de preço.
+                        <br><br>**Análise:** O RSI é um indicador de **Exaustão**. Valores altos (acima de 70) sugerem que o ativo subiu muito rapidamente e está *sobre-comprado*. Valores baixos (abaixo de 30) sugerem que o ativo caiu muito rapidamente e está *sobre-vendido*. É um sinal forte para procurar reversões.`;
+                        
+                    case 'Score de atração':
+                        const score = item.attraction_score;
+                        let scoreAnalysis;
+                        if (score >= 70) { scoreAnalysis = `O Score **${score.toFixed(0)}** indica **ALTA ASSIMETRIA**. É o momento ideal para **acumulação**, pois o risco é baixo e o potencial de recompensa é alto (bom desconto do ATH + fase de acumulação).`; }
+                        else if (score <= 40) { scoreAnalysis = `O Score **${score.toFixed(0)}** indica **BAIXA ASSIMETRIA**. **DECISÃO: Evite Novas Entradas**. O ativo está caro, o risco é alto e o potencial de retorno é limitado.`; }
+                        else { scoreAnalysis = `O Score **${score.toFixed(0)}** é **MODERADO**. Siga os sinais de S/R e Alpha.`; }
+                        return `**Métrica:** Score Consolidado (0-100) que avalia a atratividade do ativo para compra. É baseado em 4 fatores: Desconto do ATH, RSI, Fase Wyckoff e Proximidade S/R.
+                        <br><br>**Análise:** Este é o indicador de **Risco-Recompensa**. Ele agrega as métricas essenciais. Um score alto sugere que o ativo está no melhor ponto de preço para acumular (baixo risco, alto potencial).`;
+
+                    case 'Sinal Wyckoff (dinâmico)':
+                        return `**Métrica:** Fase Wyckoff atual: ${item.wyckoff_dynamic.text}. (Narrativa: ${narrative}).
+                        <br><br>**Análise & Decisão:** A metodologia Wyckoff mapeia o ciclo de mercado. **Acumulação** (Fases A, B, C) significa que grandes investidores estão comprando (oportunidade). **Distribuição** (Fases D, E) significa que eles estão vendendo (cautela/saída). Alinhe sua estratégia (COMPRA/VENDA) com a fase atual para operar a favor do dinheiro inteligente.`;
+
+                    default:
+                        return `**Interpretação Analítica:** Não há uma análise específica definida para o valor ${value} de ${label}. Clique no rótulo (lado esquerdo) para ver o conceito.`;
+                }
+            }
+
+            // Definições Conceituais para o lado esquerdo (Label)
+            switch (label) {
+                case 'Preço atual':
+                    return '**Conceito:** É o preço mais recente pelo qual o ativo foi negociado. É o ponto de partida de toda a sua análise.';
+                case 'Variação 1h':
+                    return '**Conceito:** Momentum de curtíssimo prazo. Mede a mudança percentual do preço na última hora. Útil para identificar picos repentinos de volume/euforia.';
+                case 'Variação 24h':
+                    return '**Conceito:** Momentum Diário. Mede a mudança percentual do preço nas últimas 24 horas. Fundamental para entender o sentimento do mercado no dia.';
+                case 'Variação 7D':
+                    return '**Conceito:** Tendência de Curto Prazo. Mede a mudança percentual do preço na última semana. Ajuda a confirmar se a tendência atual está se fortalecendo ou enfraquecendo.';
+                case 'Variação 30D':
+                    return '**Conceito:** Tendência de Médio Prazo. Mede a mudança percentual do preço no último mês. Indicador chave para mapear a fase macro do ciclo Wyckoff.';
+                
+                case 'Alpha vs. BTC (1h)':
+                    return '**Conceito:** Força Relativa de 1 hora. Compara se o ativo está subindo (Alpha) ou caindo (Beta) mais que o Bitcoin na última hora. Útil para identificar movimentos de fluxo de capital imediatos.';
+                case 'Alpha vs. BTC (7D)':
+                    return '**Conceito:** Força Relativa Semanal. Compara se o ativo está subindo (Alpha) ou caindo (Beta) mais que o Bitcoin na última semana. Alpha positivo é sinal de que o capital está fluindo para este ativo.';
+                case 'Alpha vs. BTC (30D)':
+                    return '**Conceito:** Força Relativa Mensal. O mesmo que Alpha 7D, mas em um horizonte maior de 30 dias. É um indicador mais robusto da migração de capital.';
+
+                case 'Proximidade S/R (Heurística)':
+                    return '**Conceito:** Indicador de Zonas Críticas. Identifica se o preço está perto de um Suporte (piso) ou Resistência (teto). Comprar perto do Suporte e vender perto da Resistência é a base de uma boa estratégia de risco/recompensa.';
+                case 'RSI heurístico (força relativa aproximada)':
+                    return '**Conceito:** Indicador de Exaustão. Estima o Índice de Força Relativa. Ajuda a saber se o ativo está *super-comprado* (acima de 70) ou *super-vendido* (abaixo de 30).';
+                case 'Score de atração':
+                    return '**Conceito:** Score de Risco-Recompensa. Uma pontuação de 0 a 100 que resume a atratividade de compra/acumulação do ativo, ponderando o desconto do topo, RSI e a fase Wyckoff.';
+                case 'Sinal Wyckoff (dinâmico)':
+                    return '**Conceito:** Classificação da Fase de Mercado. Identifica se o ativo está em Acumulação (comprando), Distribuição (vendendo), Mark-up (subindo) ou Mark-down (caindo).';
+
+                default:
+                    return 'Conceito Analítico: Esta é a descrição conceitual da métrica.';
+            }
+        }
+        
+        function drawSparkline(canvas, data) {
+            if (!canvas || !data || !data.length) return;
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const width = canvas.clientWidth * dpr;
+            const height = canvas.clientHeight * dpr;
+
+            canvas.width = width;
+            canvas.height = height;
+
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const range = max - min || 1;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.lineWidth = 1.3 * dpr;
+            ctx.strokeStyle = '#3861fb';
+            ctx.beginPath();
+
+            data.forEach((value, index) => {
+                const x = (index / (data.length - 1)) * width;
+                const y = height - ((value - min) / range) * height;
+                if (index === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+
+            ctx.stroke();
+        }
+
+        // --- FUNÇÃO DE BUSCA DINÂMICA (Mantida) ---
+
+        async function searchCoinGecko(query) {
+            if (query.length < 3) {
+                TOKEN_SEARCH_RESULTS.innerHTML = 'Digite pelo menos 3 caracteres.';
+                return;
+            }
+            TOKEN_SEARCH_RESULTS.innerHTML = 'Buscando...';
+
+            try {
+                const response = await fetch(`${API_BASE}/search?query=${query}`);
+                if (!response.ok) throw new Error('Falha na busca CoinGecko.');
+                const data = await response.json();
+
+                if (!data.coins || data.coins.length === 0) {
+                    TOKEN_SEARCH_RESULTS.innerHTML = 'Nenhum resultado encontrado.';
+                    return;
+                }
+
+                let html = '';
+                // Filtra para mostrar no máximo 5 resultados
+                data.coins.slice(0, 5).forEach(coin => {
+                    const isAdded = ALL_TOKENS_CONFIG.find(t => t.id === coin.id);
+                    if (isAdded) return; 
+
+                    html += `
+                        <div class="token-result-item">
+                            <span>${coin.symbol.toUpperCase()} - ${coin.name}</span>
+                            <button class="add-btn" 
+                                onclick="addToken('${coin.symbol.toUpperCase()}', '${coin.name.replace(/'/g, "\\'")}', '${coin.id}')">
+                                Adicionar
+                            </button>
+                        </div>
+                    `;
+                });
+
+                TOKEN_SEARCH_RESULTS.innerHTML = html || 'Nenhum resultado novo encontrado.';
+
+            } catch (error) {
+                console.error("Erro na busca CoinGecko:", error);
+                TOKEN_SEARCH_RESULTS.innerHTML = 'Erro ao buscar dados. Tente novamente mais tarde.';
+            }
+        }
+        
+        // --- FUNÇÕES DE EXCLUSÃO DE CARD E MODAL (Mantidas) ---
+        
+        window.openConfirmModal = function(id, ticker, isUserToken) {
+            document.getElementById('modal-title').textContent = `Confirmar Exclusão de ${ticker}`;
+            document.getElementById('modal-message').textContent = `Você tem certeza que deseja remover o token ${ticker} da sua lista de monitoramento? Esta ação é irreversível e removerá também todo o histórico de alertas e trades simulados.`;
+            
+            BTN_CONFIRM_DELETE.onclick = null;
+            
+            BTN_CONFIRM_DELETE.onclick = () => {
+                removeToken(id, isUserToken); 
+                closeConfirmModal();
+            };
+
+            CONFIRM_MODAL_OVERLAY.classList.add('active');
+        }
+
+        window.closeConfirmModal = function() {
+            CONFIRM_MODAL_OVERLAY.classList.remove('active');
+        }
+
+
+        // --- FUNÇÕES PRINCIPAIS DE DADOS E RENDERIZAÇÃO (Mantidas) ---
+
+        async function fetchMarketData() {
+            const ids = ALL_TOKENS_CONFIG.map(t => t.id).join(',');
+            const url = `${API_BASE}${MARKETS_ENDPOINT}?vs_currency=usd&ids=${ids}&sparkline=true&price_change_percentage=1h,24h,7d,30d,1y`;
+
+            for (let i = 0; i < MAX_RETRIES; i++) {
+                try {
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        if (i < MAX_RETRIES - 1) {
+                            await sleep((2 ** i) * 1000); 
+                            continue;
+                        } else {
+                            throw new Error('Erro ao buscar dados da API do CoinGecko.');
+                        }
+                    }
+
+                    const data = await response.json();
+                    
+                    const btcItem = data.find(item => item.id === 'bitcoin');
+                    btcPrice = btcItem ? btcItem.current_price : null;
+                    btc1hChange = btcItem ? btcItem.price_change_percentage_1h_in_currency : null; 
+                    btc24hChange = btcItem ? btcItem.price_change_percentage_24h_in_currency : null;
+                    btc7dChange = btcItem ? btcItem.price_change_percentage_7d_in_currency : null;
+                    btc30dChange = btcItem ? btcItem.price_change_percentage_30d_in_currency : null;
+                    btc1yChange = btcItem ? btcItem.price_change_percentage_1y_in_currency : null;
+
+
+                    const mappedData = data.map(item => {
+                        const tokenInfo = ALL_TOKENS_CONFIG.find(t => t.id === item.id);
+                        if (!tokenInfo) return null;
+
+                        const rsiHeuristic = calculateRSIHeuristic(item.price_change_percentage_24h_in_currency, item.price_change_percentage_7d_in_currency);
+                        const wyckoffDynamic = generateDynamicWyckoffSignal({...item});
+                        const range = estimateFutureRange(item.current_price, item.price_change_percentage_7d_in_currency, item.price_change_percentage_30d_in_currency);
+                        const srProximity = calculateSRProximity(item.current_price, range.weekLow, range.weekHigh);
+                        const athDropPct = item.ath ? ((item.current_price - item.ath) / item.ath) * 100 : null;
+                        const erScore = 50; 
+                        const attractionScore = calculateAttractionScore(athDropPct, parseFloat(rsiHeuristic.text === 'N/D' ? '50' : rsiHeuristic.text), wyckoffDynamic.phase, erScore);
+                        
+                        const vsBtc1h = calculateVsBtcPerformance(item.price_change_percentage_1h_in_currency, btc1hChange); 
+                        const vsBtc7d = calculateVsBtcPerformance(item.price_change_percentage_7d_in_currency, btc7dChange);
+                        const vsBtc30d = calculateVsBtcPerformance(item.price_change_percentage_30d_in_currency, btc30dChange);
+                        
+                        const staticWyckoff = STATIC_WYCKOFF_CONTEXT[tokenInfo.ticker] || 
+                                              STATIC_WYCKOFF_CONTEXT[tokenInfo.id] || 
+                                              'Narrativa: **Sem narrativa específica**. Contexto: Ativo dinamicamente adicionado. Nenhuma análise Wyckoff estática disponível. Use a análise dinâmica.';
+
+                        const isUserToken = USER_TOKENS_CONFIG.some(t => t.id === tokenInfo.id);
+
+                        return {
+                            ...item,
+                            ticker: tokenInfo.ticker,
+                            name: tokenInfo.name,
+                            is_user_token: isUserToken, 
+                            rsi_heuristic: rsiHeuristic,
+                            wyckoff_dynamic: wyckoffDynamic,
+                            attraction_score: attractionScore,
+                            static_wyckoff: staticWyckoff,
+                            ath_drop_pct: athDropPct,
+                            sparkline_data: item.sparkline_in_7d ? item.sparkline_in_7d.price : null,
+                            market_cap_rank: item.market_cap_rank,
+                            
+                            vs_btc_1h: vsBtc1h, 
+                            vs_btc_7d: vsBtc7d,
+                            vs_btc_30d: vsBtc30d,
+                            sr_proximity: srProximity, 
+                            range_estimates: range
+                        };
+                    }).filter(Boolean);
+
+                    allCryptoData = mappedData;
+                    renderAll();
+                    checkAlerts(mappedData);
+                    renderActiveTokensList(); 
+
+                    document.getElementById('last-update').textContent =
+                        'Última atualização: ' + new Date().toLocaleTimeString('pt-BR');
+
+                    startAutoRefresh();
+                    return;
+                } catch (error) {
+                    if (i === MAX_RETRIES - 1) {
+                        console.error("Falha final na busca de dados:", error);
+                        CARD_CONTAINER.innerHTML = `
+                            <div class="card" style="text-align:center;">
+                                <p style="margin-bottom:8px;font-weight:600;color:#dc2626;">
+                                    Erro ao carregar dados do CoinGecko.
+                                </p>
+                                <p style="margin:0 0 10px;font-size:0.76rem;color:var(--text-muted);">
+                                    Ocorreu um erro de rede ou o limite de requisições foi atingido. Tente novamente.
+                                </p>
+                                <button onclick="retryFetchData()"
+                                        style="border:none;border-radius:999px;padding:6px 12px;background:#3861fb;color:#fff;font-size:0.78rem;font-weight:600;cursor:pointer;">
+                                    Tentar recarregar
+                                </button>
+                            </div>`;
+                        document.getElementById('last-update').textContent =
+                            'Última atualização: falha ao acessar a API.';
+                        RANKING_CONTAINER.innerHTML =
+                            '<div style="text-align:center;color:#dc2626;">Não foi possível carregar o ranking.</div>';
+                        HIGHLIGHT_CONTAINER.innerHTML =
+                            '<div style="text-align:center;grid-column:1/span 4;color:#dc2626;">Não foi possível carregar os destaques.</div>';
+                    }
+                }
+            }
+        }
+
+        function retryFetchData() {
+            showToast('Atualizando dados agora...', 2000);
+            fetchMarketData();
+        }
+
+        function applyFilters(data) {
+            return data.filter(item => {
+                if (currentWyckoffFilter !== 'all') {
+                    if (item.wyckoff_dynamic.phase !== currentWyckoffFilter) return false;
+                }
+                if (currentSearchTerm) {
+                    const term = currentSearchTerm.toLowerCase();
+                    const matchTicker = item.ticker.toLowerCase().includes(term);
+                    const matchName = (item.name || '').toLowerCase().includes(term);
+                    if (!matchTicker && !matchName) return false;
+                }
+                return true;
+            }).sort((a, b) => a.name.localeCompare(b.name)); 
+        }
+
+        function renderAll() {
+            const filtered = applyFilters(allCryptoData);
+            renderCards(filtered);
+            renderRankingDashboard(allCryptoData);
+            renderHighlightsDashboard(allCryptoData);
+        }
+
+        function renderCards(data) {
+            if (!data || data.length === 0) {
+                CARD_CONTAINER.innerHTML =
+                    '<div class="card" style="text-align:center;font-size:0.8rem;">Nenhum ativo corresponde aos filtros atuais.</div>';
+                return;
+            }
+
+            let html = '';
+            data.forEach(item => {
+                const change1h = item.price_change_percentage_1h_in_currency; 
+                const change24h = item.price_change_percentage_24h_in_currency;
+                const change7d = item.price_change_percentage_7d_in_currency;
+                const change30d = item.price_change_percentage_30d_in_currency;
+                
+                const rsi = item.rsi_heuristic;
+                const wyck = item.wyckoff_dynamic;
+                const fib = {buy: item.current_price * 0.95, sell: item.current_price * 1.05}; 
+
+                const vsBtc1h = item.vs_btc_1h; 
+                const vsBtc7d = item.vs_btc_7d; 
+                const vsBtc30d = item.vs_btc_30d; 
+                const srProx = item.sr_proximity; 
+
+                let scoreClass = 'score-mid';
+                if (item.attraction_score !== null) {
+                    if (item.attraction_score >= 70) scoreClass = 'score-high';
+                    else if (item.attraction_score <= 40) scoreClass = 'score-low';
+                }
+                    
+                const isUserToken = item.is_user_token; 
+
+                html += `
+                    <div class="card" data-ticker="${item.ticker}" data-wyckoff-phase="${wyck.phase}" data-id="${item.id}">
+                        ${isUserToken ? `<button class="remove-card-btn" title="Remover da lista" onclick="openConfirmModal('${item.id}', '${item.ticker}', true)">×</button>` : ''}
+                        
+                        <div class="card-header">
+                            <div class="card-left">
+                                <div>
+                                    <div class="ticker">${item.ticker}</div>
+                                    <div class="token-name">
+                                        <div class="token-info-group">
+                                            ${item.name}
+                                            <span class="token-rank">Rank #${item.market_cap_rank || 'N/D'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <span class="badge"
+                                     data-ticker="${item.ticker}"
+                                     data-label="Sinal Wyckoff (dinâmico)"
+                                     data-is-value="true"> 
+                                    ${wyck.text}
+                                </span>
+                            </div>
+                            <div>
+                                <div class="price metric-clickable-header"
+                                     data-ticker="${item.ticker}"
+                                     data-label="Preço atual"
+                                     data-is-value="true">
+                                    ${formatPrice(item.current_price)}
+                                </div>
+                                <div class="price-change"></div>
+                            </div>
+                        </div>
+
+                        <div class="card-main-row">
+                            <div class="main-metrics">
+                                
+                                <div class="metric-row">
+                                    <span class="metric-label metric-clickable"
+                                         data-ticker="${item.ticker}"
+                                         data-label="Proximidade S/R (Heurística)"
+                                         data-is-value="false"> 
+                                        Proximidade S/R
+                                    </span>
+                                    <span class="metric-value metric-clickable ${srProx.class}"
+                                         data-ticker="${item.ticker}"
+                                         data-label="Proximidade S/R (Heurística)"
+                                         data-is-value="true"> 
+                                        ${srProx.text}
+                                    </span>
+                                </div>
+
+                                <div class="momentum-group">
+                                    <div class="metric-row">
+                                        <span class="metric-label metric-clickable"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 1h"
+                                             data-is-value="false"> 
+                                            Variação 1h
+                                        </span>
+                                        <span class="metric-value metric-clickable change-metric-value ${change1h > 0 ? 'positive' : change1h < 0 ? 'negative' : 'neutral'}"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 1h"
+                                             data-is-value="true"> 
+                                            ${formatPercent(change1h)}
+                                        </span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label metric-clickable"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 24h"
+                                             data-is-value="false"> 
+                                            Variação 24h
+                                        </span>
+                                        <span class="metric-value metric-clickable change-metric-value ${change24h > 0 ? 'positive' : change24h < 0 ? 'negative' : 'neutral'}"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 24h"
+                                             data-is-value="true"> 
+                                            ${formatPercent(change24h)}
+                                        </span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label metric-clickable"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 7D"
+                                             data-is-value="false"> 
+                                            Variação 7D
+                                        </span>
+                                        <span class="metric-value metric-clickable change-metric-value ${change7d > 0 ? 'positive' : change7d < 0 ? 'negative' : 'neutral'}"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 7D"
+                                             data-is-value="true"> 
+                                            ${formatPercent(change7d)}
+                                        </span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label metric-clickable"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 30D"
+                                             data-is-value="false"> 
+                                            Variação 30D
+                                        </span>
+                                        <span class="metric-value metric-clickable change-metric-value ${change30d > 0 ? 'positive' : change30d < 0 ? 'negative' : 'neutral'}"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Variação 30D"
+                                             data-is-value="true"> 
+                                            ${formatPercent(change30d)}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <div class="alpha-group">
+                                    <div class="metric-row">
+                                        <span class="metric-label metric-clickable"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Alpha vs. BTC (1h)"
+                                             data-is-value="false"> 
+                                            Alpha vs. BTC (1h)
+                                        </span>
+                                        <span class="metric-value metric-clickable ${vsBtc1h.class}"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Alpha vs. BTC (1h)"
+                                             data-is-value="true"> 
+                                            ${vsBtc1h.text}
+                                        </span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label metric-clickable"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Alpha vs. BTC (7D)"
+                                             data-is-value="false"> 
+                                            Alpha vs. BTC (7D)
+                                        </span>
+                                        <span class="metric-value metric-clickable ${vsBtc7d.class}"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Alpha vs. BTC (7D)"
+                                             data-is-value="true"> 
+                                            ${vsBtc7d.text}
+                                        </span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label metric-clickable"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Alpha vs. BTC (30D)"
+                                             data-is-value="false"> 
+                                            Alpha vs. BTC (30D)
+                                        </span>
+                                        <span class="metric-value metric-clickable ${vsBtc30d.class}"
+                                             data-ticker="${item.ticker}"
+                                             data-label="Alpha vs. BTC (30D)"
+                                             data-is-value="true"> 
+                                            ${vsBtc30d.text}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label metric-clickable"
+                                         data-ticker="${item.ticker}"
+                                         data-label="RSI heurístico (força relativa aproximada)"
+                                         data-is-value="false"> 
+                                        RSI heurístico
+                                    </span>
+                                    <span class="metric-value metric-clickable ${rsi.class}"
+                                         data-ticker="${item.ticker}"
+                                         data-label="RSI heurístico (força relativa aproximada)"
+                                         data-is-value="true"> 
+                                        ${rsi.text}
+                                    </span>
+                                </div>
+                                
+                                <div class="metric-row">
+                                    <span class="metric-label metric-clickable"
+                                         data-ticker="${item.ticker}"
+                                         data-label="Score de atração"
+                                         data-is-value="false"> 
+                                        Score de atração
+                                    </span>
+                                    <span class="metric-value metric-clickable"
+                                         data-ticker="${item.ticker}"
+                                         data-label="Score de atração"
+                                         data-is-value="true"> 
+                                        ${
+                                            item.attraction_score === null
+                                            ? 'N/D'
+                                            : `<span class="score-badge ${scoreClass}">${item.attraction_score.toFixed(0)}</span>`
+                                        }
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="sparkline-wrapper">
+                                <canvas class="sparkline" id="sparkline-${item.ticker}"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="card-details">
+                            <div class="wyckoff-tag">
+                                <strong>Contexto Wyckoff estático:</strong> ${item.static_wyckoff}
+                            </div>
+                            
+                            <div class="alert-trade-section">
+                                <h4>Simulação de Trade e Alerta Local</h4>
+                                
+                                <form class="trade-form" onsubmit="event.preventDefault(); handleTradeSubmission('${item.ticker}', 'buy', ${item.current_price}, document.getElementById('buy-amount-type-${item.ticker}').value, document.getElementById('buy-amount-${item.ticker}').value); return false;">
+                                    <div style="font-size:0.75rem; font-weight:600; color:var(--positive); margin-bottom: 4px;">Registrar Compra:</div>
+                                    <div class="trade-form-group">
+                                        <select id="buy-amount-type-${item.ticker}" onchange="updatePlaceholder('${item.ticker}', 'buy')">
+                                            <option value="usd">Valor (USD)</option>
+                                            <option value="quantity">Qtd. Tokens</option>
+                                        </select>
+                                        <input type="number" id="buy-amount-${item.ticker}" placeholder="100.00 USD" step="any" min="0.0000001" required>
+                                    </div>
+                                    <button type="submit" class="btn-buy" style="background-color: var(--positive); color: #ffffff;">Registrar Compra @ ${formatPrice(item.current_price)}</button>
+                                </form>
+
+                                <form class="trade-form" onsubmit="event.preventDefault(); handleTradeSubmission('${item.ticker}', 'sell', ${item.current_price}, document.getElementById('sell-amount-type-${item.ticker}').value, document.getElementById('sell-amount-${item.ticker}').value); return false;">
+                                    <div style="font-size:0.75rem; font-weight:600; color:var(--negative); margin-top: 10px; margin-bottom: 4px;">Fechar Posição (Parcial ou Total):</div>
+                                    <div class="trade-form-group">
+                                        <select id="sell-amount-type-${item.ticker}" onchange="updatePlaceholder('${item.ticker}', 'sell')">
+                                            <option value="quantity">Qtd. Tokens</option>
+                                            <option value="usd">Valor (USD)</option>
+                                        </select>
+                                        <input type="number" id="sell-amount-${item.ticker}" placeholder="Qtd. de tokens para vender" step="any" min="0.0000001" required>
+                                    </div>
+                                    <button type="submit" class="btn-sell" style="background-color: var(--negative); color: #ffffff;">Fechar/Vender @ ${formatPrice(item.current_price)}</button>
+                                </form>
+
+                                <form class="trade-form" onsubmit="event.preventDefault(); addAlert('${item.ticker}', document.getElementById('alert-type-${item.ticker}').value, document.getElementById('alert-price-${item.ticker}').value); return false;">
+                                    <div style="font-size:0.75rem; font-weight:600; color:var(--accent-strong); margin-top: 10px; margin-bottom: 4px;">Alerta de Preço:</div>
+                                    <select id="alert-type-${item.ticker}" required style="width: 100%; margin-bottom: 6px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-card); font-size: 0.75rem;">
+                                        <option value="buy">Alvo de COMPRA (entrada)</option>
+                                        <option value="sell">Alvo de VENDA (saída)</option>
+                                    </select>
+                                    <input type="number" id="alert-price-${item.ticker}" placeholder="Preço alvo em USD (ex: ${fib.buy ? fib.buy.toFixed(2) : '0.00'})" step="any" required style="width: 100%; margin-bottom: 6px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-card); font-size: 0.75rem;">
+                                    <button type="submit">Salvar alerta de preço</button>
+                                </form>
+
+                                <div class="active-alerts-list"></div>
+                                <div class="trade-history-list"></div>
+                            </div>
+                            
+                            <div class="tradingview-container" id="tv-${item.ticker}"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            CARD_CONTAINER.innerHTML = html;
+
+            document.querySelectorAll('.card').forEach(card => {
+                const ticker = card.getAttribute('data-ticker');
+                card.addEventListener('click', (e) => {
+                    if (e.target.closest('.alert-trade-section') || e.target.closest('.metric-tooltip-overlay') || e.target.closest('.remove-card-btn')) return;
+
+                    const expanded = card.classList.toggle('expanded');
+                    if (expanded) {
+                        initTradingViewWidget(ticker);
+                        renderCardAlerts(ticker);
+                        renderCardTrades(ticker);
+                        updatePlaceholder(ticker, 'buy'); 
+                        updatePlaceholder(ticker, 'sell'); 
+                    }
+                });
+            });
+
+            document.querySelectorAll('.metric-label, .metric-value, .metric-clickable-header, .detail-label, .detail-value').forEach(el => {
+                el.addEventListener('click', () => {
+                    const ticker = el.getAttribute('data-ticker');
+                    const label = el.getAttribute('data-label');
+                    const isValue = el.getAttribute('data-is-value') === 'true'; 
+                    
+                    const item = allCryptoData.find(c => c.ticker === ticker);
+                    if (!item) return;
+
+                    let value;
+                    let type = el.getAttribute('data-type');
+                    
+                    if (label.startsWith('Alpha vs. BTC (1h)')) {
+                         value = item.vs_btc_1h.value; 
+                    } else if (label.startsWith('Alpha vs. BTC (7D)')) {
+                         value = item.vs_btc_7d.value; 
+                    } else if (label.startsWith('Alpha vs. BTC (30D)')) {
+                         value = item.vs_btc_30d.value; 
+                    } else if (label === 'Proximidade S/R (Heurística)' && isValue) {
+                        value = item.sr_proximity.value; 
+                    } else if (label === 'RSI heurístico (força relativa aproximada)' && isValue) {
+                        value = item.rsi_heuristic.value;
+                    } else if (label === 'Variação 1h' && isValue) {
+                        value = item.price_change_percentage_1h_in_currency; 
+                    } else if (label === 'Variação 7D' && isValue) {
+                        value = item.price_change_percentage_7d_in_currency;
+                    } else if (label === 'Variação 30D' && isValue) {
+                        value = item.price_change_percentage_30d_in_currency;
+                    } else if (label === 'Variação 24h' && isValue) {
+                        value = item.price_change_percentage_24h_in_currency;
+                    } else if (label === 'Score de atração' && isValue) {
+                        value = item.attraction_score;
+                    } else if (label === 'Sinal Wyckoff (dinâmico)' && isValue) {
+                         value = item.wyckoff_dynamic.text;
+                    } else if (label === 'Preço atual' && isValue) {
+                        value = item.current_price;
+                    } else if (type === 'number' && isValue) {
+                         value = parseFloat(el.getAttribute('data-value')); 
+                    } else {
+                         value = el.getAttribute('data-value');
+                    }
+
+
+                    const text = getAnalyticalInterpretation(label, value, item, isValue);
+                    
+                    let title = isValue ? `${ticker} • Análise: ${label}` : `${ticker} • Conceito: ${label}`;
+                    openMetricTooltip(title, text);
+                });
+            });
+
+            data.forEach(item => {
+                const canvas = document.getElementById('sparkline-' + item.ticker);
+                if (canvas && item.sparkline_data) {
+                    drawSparkline(canvas, item.sparkline_data);
+                }
+            });
+        }
+
+        function initTradingViewWidget(ticker) {
+            const containerId = 'tv-' + ticker;
+            const container = document.getElementById(containerId);
+            if (!container || container.getAttribute('data-loaded') === '1') return;
+
+            const symbol = getTradingViewSymbol(ticker);
+            container.setAttribute('data-loaded', '1');
+
+            new TradingView.widget({
+                autosize: true,
+                symbol: symbol,
+                interval: '60',
+                timezone: 'Etc/UTC',
+                theme: 'light',
+                style: '1',
+                locale: 'br',
+                toolbar_bg: '#f1f3f6',
+                enable_publishing: false,
+                hide_top_toolbar: true,
+                hide_legend: true,
+                save_image: false,
+                container_id: containerId
+            });
+        }
+
+        function renderHighlightsDashboard(data) {
+            if (!data || data.length === 0) {
+                HIGHLIGHT_CONTAINER.innerHTML =
+                    '<div style="text-align:center;grid-column:1/span 4;">Sem dados para destaques.</div>';
+                return;
+            }
+
+            const topValued = [...data].sort((a, b) => (b.price_change_percentage_24h_in_currency || -Infinity) - (a.price_change_percentage_24h_in_currency || -Infinity)).slice(0, 10);
+            const topDevalued = [...data].sort((a, b) => (a.price_change_percentage_24h_in_currency || Infinity) - (b.price_change_percentage_24h_in_currency || Infinity)).slice(0, 10);
+            const topStrong = [...data].sort((a, b) => (b.attraction_score || -Infinity) - (a.attraction_score || -Infinity)).slice(0, 10);
+            const topWeak = [...data].sort((a, b) => (a.rsi_heuristic.value || Infinity) - (b.rsi_heuristic.value || Infinity)).slice(0, 10);
+
+            let html = `
+                <div class="highlight-card">
+                    <h4>Top Valorizadas (24h) 🚀</h4>
+                    ${topValued.map(i => `
+                        <div class="highlight-item"
+                            data-ticker="${i.ticker}"
+                            data-label="Top Valorizadas (24h)"
+                            onclick="openTooltipFromHighlight('${i.ticker}', 'Top Valorizadas (24h)')">
+                            <span>${i.ticker}</span>
+                            <span class="positive">${formatPercent(i.price_change_percentage_24h_in_currency)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="highlight-card">
+                    <h4>Top Desvalorizadas (24h) 🔻</h4>
+                    ${topDevalued.map(i => `
+                        <div class="highlight-item"
+                            data-ticker="${i.ticker}"
+                            data-label="Top Desvalorizadas (24h)"
+                            onclick="openTooltipFromHighlight('${i.ticker}', 'Top Desvalorizadas (24h)')">
+                            <span>${i.ticker}</span>
+                            <span class="negative">${formatPercent(i.price_change_percentage_24h_in_currency)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="highlight-card">
+                    <h4>Top Atração (Forte Compra) ⭐</h4>
+                    ${topStrong.map(i => `
+                        <div class="highlight-item"
+                            data-ticker="${i.ticker}"
+                            data-label="Top Atração (Forte Compra)"
+                            onclick="openTooltipFromHighlight('${i.ticker}', 'Top Atração (Forte Compra)')">
+                            <span>${i.ticker}</span>
+                            <span class="score-badge ${i.attraction_score >= 70 ? 'score-high' : 'score-mid'}">${i.attraction_score === null ? 'N/D' : i.attraction_score.toFixed(0)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="highlight-card">
+                    <h4>Top Sobre-venda (Fraco) 📉</h4>
+                    ${topWeak.map(i => `
+                        <div class="highlight-item"
+                            data-ticker="${i.ticker}"
+                            data-label="Top Sobre-venda (Fraco)"
+                            onclick="openTooltipFromHighlight('${i.ticker}', 'Top Sobre-venda (Fraco)')">
+                            <span>${i.ticker}</span>
+                            <span class="rsi-low">${i.rsi_heuristic.text}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            HIGHLIGHT_CONTAINER.innerHTML = html;
+
+            document.querySelectorAll('.highlight-item').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    const ticker = el.getAttribute('data-ticker');
+                    if (e.target.tagName !== 'SPAN' && !e.target.closest('.metric-tooltip-overlay')) {
+                        const card = document.querySelector(`.card[data-ticker="${ticker}"]`);
+                        if (!card) return;
+                        card.classList.add('expanded');
+                        initTradingViewWidget(ticker);
+                        renderCardAlerts(ticker);
+                        renderCardTrades(ticker);
+                        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                });
+            });
+        }
+
+        window.openTooltipFromHighlight = function(ticker, label) {
+            const item = allCryptoData.find(c => c.ticker === ticker);
+            if (!item) return;
+            
+            let value;
+            if (label === 'Top Valorizadas (24h)' || label === 'Top Desvalorizadas (24h)') {
+                value = item.price_change_percentage_24h_in_currency;
+            } else if (label === 'Top Atração (Forte Compra)') {
+                value = item.attraction_score;
+            } else if (label === 'Top Sobre-venda (Fraco)') {
+                value = item.rsi_heuristic.value;
+            }
+            
+            const text = getAnalyticalInterpretation(label, value, item, true);
+            openMetricTooltip(`${ticker} • Análise: ${label}`, text);
+        }
+
+        function renderRankingDashboard(data) {
+            if (!data || data.length === 0) {
+                RANKING_CONTAINER.innerHTML =
+                    '<div style="text-align:center;">Sem dados para ranking.</div>';
+            return;
+            }
+
+            let filtered = [...data];
+            if (currentDashboardFilter === 'compra') {
+                filtered = filtered.filter(i => i.wyckoff_dynamic.phase === 'acc');
+                filtered.sort((a, b) => (b.attraction_score || 0) - (a.attraction_score || 0));
+            } else if (currentDashboardFilter === 'venda') {
+                filtered = filtered.filter(i => i.wyckoff_dynamic.phase === 'dist');
+                filtered.sort((a, b) => (b.price_change_percentage_30d_in_currency || 0) -
+                                        (a.price_change_percentage_30d_in_currency || 0));
+            } else {
+                filtered.sort((a, b) => (b.attraction_score || 0) - (a.attraction_score || 0));
+            }
+
+            const top = filtered.slice(0, 8);
+
+            let html = `
+                <div class="ranking-columns">
+                    <div class="ranking-card">
+                        <h4>Top assimetria (score)</h4>
+                        ${top.map(i => `
+                            <div class="ranking-item" data-ticker="${i.ticker}">
+                                <span>${i.ticker}</span>
+                                <span>${i.attraction_score === null ? 'N/D' : i.attraction_score.toFixed(0)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="ranking-card">
+                        <h4>Movimento em 30 dias</h4>
+                        ${top.map(i => `
+                            <div class="ranking-item" data-ticker="${i.ticker}">
+                                <span>${i.ticker}</span>
+                                <span>${formatPercent(i.price_change_percentage_30d_in_currency)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            RANKING_CONTAINER.innerHTML = html;
+
+            document.querySelectorAll('.ranking-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    const ticker = el.getAttribute('data-ticker');
+                    const card = document.querySelector(`.card[data-ticker="${ticker}"]`);
+                    if (!card) return;
+                    card.classList.add('expanded');
+                    initTradingViewWidget(ticker);
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+            });
+        }
+
+        function startAutoRefresh() {
+            if (refreshTimer) clearTimeout(refreshTimer);
+            if (countdownTimer) clearInterval(countdownTimer);
+
+            countdownSeconds = REFRESH_INTERVAL_MS / 1000;
+            document.getElementById('countdown').textContent = countdownSeconds + 's';
+
+            countdownTimer = setInterval(() => {
+                countdownSeconds--;
+                if (countdownSeconds <= 0) {
+                    clearInterval(countdownTimer);
+                    fetchMarketData();
+                } else {
+                    document.getElementById('countdown').textContent = countdownSeconds + 's';
+                }
+            }, 1000);
+        }
+
+        // Funções de Rolagem
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function scrollToBottom() {
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        }
+
+
+        function setupEventListeners() {
+            document.getElementById('refresh-button').addEventListener('click', () => {
+                showToast('Atualizando dados agora...', 2000);
+                fetchMarketData();
+            });
+            
+            document.getElementById('scroll-to-top').addEventListener('click', scrollToTop);
+            document.getElementById('scroll-to-bottom').addEventListener('click', scrollToBottom);
+
+            document.getElementById('search-input').addEventListener('input', e => {
+                currentSearchTerm = e.target.value.trim();
+                renderAll();
+            });
+            
+            let searchTimeout;
+            TOKEN_SEARCH_INPUT.addEventListener('input', e => {
+                clearTimeout(searchTimeout);
+                const query = e.target.value.trim();
+                searchTimeout = setTimeout(() => {
+                    searchCoinGecko(query);
+                }, 500); 
+            });
+
+
+            document.querySelectorAll('input[name="wyckoff-filter"]').forEach(r => {
+                r.addEventListener('change', e => {
+                    currentWyckoffFilter = e.target.value;
+                    document.querySelectorAll('#wyckoff-filter-group label').forEach(lbl => {
+                        lbl.classList.remove('active');
+                    });
+                    e.target.parentElement.classList.add('active');
+                    renderAll();
+                });
+            });
+
+            document.querySelectorAll('input[name="dashboard-filter"]').forEach(r => {
+                r.addEventListener('change', e => {
+                    currentDashboardFilter = e.target.value;
+                    document.querySelectorAll('#dashboard-filter-group label').forEach(lbl => {
+                        lbl.classList.remove('active');
+                    });
+                    e.target.parentElement.classList.add('active');
+                    renderRankingDashboard(allCryptoData);
+                });
+            });
+        }
+
+        // Adiciona as funções ao escopo global para que o onclick inline funcione
+        window.addToken = addToken;
+        window.removeToken = removeToken;
+        window.openConfirmModal = openConfirmModal;
+        window.closeConfirmModal = closeConfirmModal;
+        window.handleTradeSubmission = handleTradeSubmission;
+        window.updatePlaceholder = updatePlaceholder;
+
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDataFromStorage(); 
+            setupEventListeners();
+            fetchMarketData();
+        });
+    </script>
+</body>
+</html>
